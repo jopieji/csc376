@@ -15,16 +15,16 @@
 import java.net.*;
 import java.io.*;
 
-public class ClientServer {
+public class Messenger {
     public static void main(String[] args) {
-	if (args.length < 2 || args.length > 3) {
+	if (args.length != 2) {
 	    System.out.println("Usage: <-s> hostname port");
 	    return;
 	}
-  if (!args[0].equals("-s")) {
+  if (!args[0].equals("-s")) { // Example Usage: java Messenger 1234 localhost
     // case for client
-    String hostname = args[0];
-    int port = Integer.parseInt(args[1]);
+    String hostname = args[1];
+    int port = Integer.parseInt(args[0]);
     Socket socket = null;
     try {
       socket = new Socket(hostname, port);
@@ -35,7 +35,7 @@ public class ClientServer {
         String str = reader.readLine();
         if (str == null)
           break;
-        out.write(str + "\r\n");
+        out.write(str + "\n");
         out.flush();
       }
     } catch(IOException ex) {
@@ -46,13 +46,12 @@ public class ClientServer {
           } catch(IOException ex) {}
       }
   }
-  else if (args[0].equals("-s")){
+  else if (args[0].equals("-s")) { // Example Usage: java Messenger -s 1234
     // case for server
     int port = Integer.parseInt(args[1]);
 	  try (ServerSocket server = new ServerSocket(port)) {
 		  try (Socket connection = server.accept()) {
-		      InputStreamReader reader = new InputStreamReader(connection.getInputStream());
-	    	      while (true) {
+		      InputStreamReader reader = new InputStreamReader(connection.getInputStream()); while (true) {
 		          StringBuilder s = new StringBuilder();
 		          int c;
 		          for (c = reader.read(); c != '\n' && c != -1; c = reader.read()) {
@@ -60,7 +59,7 @@ public class ClientServer {
 		          }
 		          if (c == -1)
 			          break;
-              System.out.println(s.reverse());
+              System.out.print(s.reverse().append("\r\n"));
 	    	      }
 		  }  catch (IOException ex) {
 		      System.err.println(ex);
