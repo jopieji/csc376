@@ -27,15 +27,31 @@ public class ClientHandler implements Runnable {
             try {
                 message = reader.readLine();
             } catch (IOException e) {
-                // close clients?
                 e.printStackTrace();
             }
             try {
                 sendMessageToClients(message);
             } catch (IOException e) {
-                // need to close clients?
                 e.printStackTrace();
             }
+        }
+        try {
+            closeAllSocketsAndStreams();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void closeAllSocketsAndStreams() throws IOException {
+        removeClientFromList();
+        if (this.socket != null) {
+            this.socket.close();
+        }
+        if (this.writer != null) {
+            this.writer.close();
+        }
+        if (this.reader != null) {
+            this.reader.close();
         }
     }
 
@@ -59,7 +75,5 @@ public class ClientHandler implements Runnable {
     public void removeClientFromList() {
         listOfClients.remove(this);
     }
-
-
 
 }

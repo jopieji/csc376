@@ -31,7 +31,7 @@ public class Client {
         client.waitToSendMessage();
     }
 
-    public void waitToSendMessage() {
+    public void waitToSendMessage() throws IOException {
         try {
             writer.write(username);
             writer.newLine();
@@ -45,7 +45,19 @@ public class Client {
                 writer.flush();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            closeAllSocketsAndStreams();
+        }
+    }
+
+    public void closeAllSocketsAndStreams() throws IOException {
+        if (this.socket != null) {
+            this.socket.close();
+        }
+        if (this.writer != null) {
+            this.writer.close();
+        }
+        if (this.reader != null) {
+            this.reader.close();
         }
     }
 
