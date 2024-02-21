@@ -80,7 +80,7 @@ public class MessengerWithFiles {
     }
 
     public String promptUser() {
-        System.out.println("Enter an option ('m', 'f', 'x'):\n\t(M)essage (send)\n\t(F)ile (request)\n  e(X)it");
+        System.out.println("Enter an option ('m', 'f', 'x'):\n\t (M)essage (send)\n\t (F)ile (request)\n\te(X)it");
         Scanner sc = new Scanner(System.in);
         String opt = sc.nextLine();
         if (opt.equals("m") || opt.equals("f") || opt.equals("x")) return opt;
@@ -144,12 +144,11 @@ public class MessengerWithFiles {
             System.out.println("Enter your message:");
             BufferedReader reader = new BufferedReader(new InputStreamReader(client_socket.getInputStream()));
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(client_socket.getOutputStream()));
-            String msg = reader.readLine();
+            Scanner sc = new Scanner(System.in);
+            String msg = sc.nextLine();
             writer.write(msg);
             writer.newLine();
             writer.flush();
-            reader.close();
-            writer.close();
         } catch (IOException io) {
             io.printStackTrace();
         }
@@ -176,6 +175,14 @@ public class MessengerWithFiles {
             } else {
                 // TODO: Server logic
                 MessengerWithFiles server = new MessengerWithFiles(server_port, "y");
+                // listen for messages
+                BufferedReader reader = new BufferedReader(new InputStreamReader(server.server_client_socket.getInputStream()));
+                String incoming_message = " ";
+                while ((incoming_message = reader.readLine()) != null) {
+                    System.out.println(incoming_message);
+                    // TODO: server closing after first message?
+                }
+
             }
         } catch (Exception e) {
             System.out.println(e.getMessage());
