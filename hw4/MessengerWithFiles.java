@@ -180,15 +180,17 @@ public class MessengerWithFiles {
     public void receiveMessageFromClient() throws IOException {
         try {
             char header = (char) server_cmd_input.readByte();
-            System.out.println(header);
+
             // text message case
             if (header == 't') {
-                int messageLength = server_cmd_input.readInt(); // Read the length of the message
-                byte[] messageBytes = new byte[messageLength];
-                server_cmd_input.readFully(messageBytes); // Read the message bytes
-                String message_received = new String(messageBytes, StandardCharsets.UTF_8);
+                // read length of message sent by client to instantiate byte array of correct size
+                int message_length = server_cmd_input.readInt();
+                byte[] message_bytes = new byte[message_length];
+                server_cmd_input.readFully(message_bytes);
+                String message_received = new String(message_bytes, StandardCharsets.UTF_8);
                 System.out.println(message_received);
             } else {
+                // TODO: file transfer (should be able to be server/client independent)
                 System.out.println("implement correct file logic in function");
             }
         } catch (IOException io) {
@@ -204,26 +206,30 @@ public class MessengerWithFiles {
         try {
             if (sender_flag.equals("c")) {
                 MessengerWithFiles client = new MessengerWithFiles(client_cmd_port);
-                boolean loop = true;
-                while (loop) {
-                    String act = client.promptUser();
-                    client.executeAction(client, act);
-                }
-                long file_size = 0;
-                if (file_size > 0)
-                    System.out.println("File length: " + file_size);
-                else
-                    System.out.println("No file received");
+                    new Thread(() -> {
+                        while (true) {
+                            try {
+                                String act = client.promptUser();
+                                client.executeAction(client, act);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }).start();
             } else {
                 // TODO: Server logic
                 MessengerWithFiles server = new MessengerWithFiles(server_cmd_port, "y");
-                // listen for messages
-                //BufferedReader reader = new BufferedReader(new InputStreamReader(server.server_client_cmd_socket.getInputStream()));
-                while (true) {
-                    server.receiveMessageFromClient();
-                    // TODO: server closing after first message?
-                }
-
+                // listen for messages in another thread
+                new Thread(() -> {
+                    while (true) {
+                        try {
+                            server.receiveMessageFromClient();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        // TODO: server closing after first message?
+                    }
+                }).start();
             }
         } catch (Exception e) {
             System.out.println(e.getMessage());
