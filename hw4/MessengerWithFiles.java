@@ -44,7 +44,7 @@ public class MessengerWithFiles {
         server_cmd_output = new DataOutputStream(server_client_cmd_socket.getOutputStream());
     }
 
-    // TODO: send file size before transmitting bytes
+    // TODO: send file size before transmitting bytes; Modify to open connections on new port
     // use buffer array to partition bytes into multiple packets
     public void serviceRequest() throws IOException {
         client_cmd_input = new DataInputStream(client_cmd_socket.getInputStream());
@@ -138,6 +138,7 @@ public class MessengerWithFiles {
         if (act.equals("m")) {
             client.readMessageAndSend();
         } else if (act.equals("f")) {
+            client.sendPortToServer();
             System.out.println("Enter a file name: ");
             Scanner sc = new Scanner(System.in);
             String file_name = sc.nextLine();
@@ -153,44 +154,63 @@ public class MessengerWithFiles {
         }
     }
 
+    public void sendPortToServer() {
+        DataOutputStream output;
+        if (client_cmd_output == null) output = server_cmd_output;
+        else output = client_cmd_output;
+        try {
+            ServerSocket file_transfer_server_socket = new ServerSocket(6003);
+            output.writeByte('p');
+            output.writeInt(6003);
+            Socket file_transfer_client_socket = file_transfer_server_socket.accept();
+            output.flush();
+        } catch (IOException io) {
+            io.printStackTrace();
+        }
+    }
+
     public void readMessageAndSend() {
+        DataOutputStream output;
+        if (client_cmd_output == null) output = server_cmd_output;
+        else output = client_cmd_output;
         // message read and send logic
         try {
             System.out.println("Enter your message:");
             // TODO: implement 'f' type messages to be sent
-            // write as bytes and decode on receiving side
-            // string builder to be converted to byte array
-            // append t for text message
-            // setup scanner to get message
             Scanner sc = new Scanner(System.in);
             String msg = sc.nextLine();
-            client_cmd_output.writeByte('t');
+            output.writeByte('t');
             byte[] messageBytes = msg.getBytes(StandardCharsets.UTF_8);
-            client_cmd_output.writeInt(messageBytes.length);
-            client_cmd_output.write(messageBytes);
-            client_cmd_output.flush();
-
+            output.writeInt(messageBytes.length);
+            output.write(messageBytes);
+            output.flush();
         } catch (IOException io) {
             io.printStackTrace();
         }
     }
 
     // TODO: Fix for handling file requests as well
-    // TODO: run function in other thread
-    public void receiveMessageFromClient() throws IOException {
+    public void receiveMessage() throws IOException {
+        DataInputStream input;
+        if (client_cmd_input == null) input = server_cmd_input;
+        else input = client_cmd_input;
         try {
-            char header = (char) server_cmd_input.readByte();
+            char header = (char) input.readByte();
 
             // text message case
             if (header == 't') {
                 // read length of message sent by client to instantiate byte array of correct size
-                int message_length = server_cmd_input.readInt();
+                int message_length = input.readInt();
                 byte[] message_bytes = new byte[message_length];
-                server_cmd_input.readFully(message_bytes);
+                input.readFully(message_bytes);
                 String message_received = new String(message_bytes, StandardCharsets.UTF_8);
                 System.out.println(message_received);
             } else {
-                // TODO: file transfer (should be able to be server/client independent)
+                System.out.println("Step into file logic");
+                // file transfer case
+                int file_port = input.readInt();
+                Socket file_connection = new Socket("localhost", file_port);
+
                 System.out.println("implement correct file logic in function");
             }
         } catch (IOException io) {
@@ -206,6 +226,16 @@ public class MessengerWithFiles {
         try {
             if (sender_flag.equals("c")) {
                 MessengerWithFiles client = new MessengerWithFiles(client_cmd_port);
+                new Thread(() -> {
+                    while (true) {
+                        try {
+                            client.receiveMessage();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                }).start();
+                // new thread for prompting user and executing actions
                     new Thread(() -> {
                         while (true) {
                             try {
@@ -217,17 +247,26 @@ public class MessengerWithFiles {
                         }
                     }).start();
             } else {
-                // TODO: Server logic
                 MessengerWithFiles server = new MessengerWithFiles(server_cmd_port, "y");
                 // listen for messages in another thread
                 new Thread(() -> {
                     while (true) {
                         try {
-                            server.receiveMessageFromClient();
+                            server.receiveMessage();
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
-                        // TODO: server closing after first message?
+                    }
+                }).start();
+                // server thread for prompting input and sending to client
+                new Thread(() -> {
+                    while (true) {
+                        try {
+                            String act = server.promptUser();
+                            server.executeAction(server, act);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
                     }
                 }).start();
             }
