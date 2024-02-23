@@ -7,6 +7,8 @@ import java.util.Scanner;
 public class MessengerWithFiles {
     Socket client_cmd_socket;
     Socket server_client_cmd_socket;
+    Socket client_file_connection;
+    Socket server_file_connection;
     ServerSocket server_cmd_socket;
     static int server_cmd_port;
     static int client_cmd_port;
@@ -20,14 +22,6 @@ public class MessengerWithFiles {
     DataInputStream server_cmd_input;
     DataOutputStream server_cmd_output;
 
-
-    // TODO: implement functions to start in other threads
-    /*
-    new Thread(() -> {
-    // code goes here.
-    }).start();
-     */
-
     // for acting as client
     public MessengerWithFiles(int port_number) throws IOException {
         client_cmd_socket = new Socket("localhost", port_number);
@@ -39,37 +33,39 @@ public class MessengerWithFiles {
     public MessengerWithFiles(int port_number, String f) throws IOException {
         server_cmd_socket = new ServerSocket(port_number);
         server_client_cmd_socket = server_cmd_socket.accept();
-        // TODO: might be incorrect socket; need to see what data is being transported where
         server_cmd_input = new DataInputStream(server_client_cmd_socket.getInputStream());
         server_cmd_output = new DataOutputStream(server_client_cmd_socket.getOutputStream());
     }
 
     // TODO: send file size before transmitting bytes; Modify to open connections on new port
-    // use buffer array to partition bytes into multiple packets
-    public void serviceRequest() throws IOException {
-        client_cmd_input = new DataInputStream(client_cmd_socket.getInputStream());
-        client_cmd_output = new DataOutputStream(client_cmd_socket.getOutputStream());
-        String file_name = client_cmd_input.readUTF();
+    // TODO: reset file transfer sockets to null; they can switch roles dynamically with each transfer, can't have both populated
+    // TODO: use buffer array to partition bytes into multiple packets if needed
+    public void transmitFileToOutputStream(String file_name) throws IOException {
+        DataOutputStream output;
+        if (client_file_connection == null) {
+            output = new DataOutputStream(server_file_connection.getOutputStream());
+        } else {
+            output = new DataOutputStream(client_file_connection.getOutputStream());
+        }
         File file = new File(file_name);
+        int file_size;
         if (file.exists() && file.canRead()) {
             // return the number of bytes in the file as a long int
-            long file_size = file.length();
+            file_size = (int) file.length();
             if (file_size > 0)
-                client_cmd_output.writeLong(file_size);
+                output.writeInt(file_size);
             else {
-                client_cmd_output.writeLong(0L);
+                output.writeInt(0);
                 return;
             }
         } else {
-            client_cmd_output.writeLong(0L);
+            output.writeInt(0);
             return;
         }
         FileInputStream file_input = new FileInputStream(file);
         System.out.println("Transmitting file: " + file_name);
-        byte[] file_buffer = new byte[1500];
-        int number_read;
-        while ((number_read = file_input.read(file_buffer)) != -1)
-            client_cmd_output.write(file_buffer, 0, number_read);
+        byte[] file_buffer = file_input.readAllBytes();
+        output.write(file_buffer);
         file_input.close();
     }
 
@@ -78,15 +74,21 @@ public class MessengerWithFiles {
         server_cmd_socket.close();
     }
 
-    public int getFile(String file_name) throws IOException {
-        client_cmd_output.writeUTF(file_name);
-        long file_size = client_cmd_input.readLong();
-        if (file_size == 0)
+    public int receiveFile(String file_name) throws IOException {
+        DataInputStream input;
+        if (client_file_connection == null) {
+            input = new DataInputStream(server_file_connection.getInputStream());
+        } else {
+            input = new DataInputStream(client_file_connection.getInputStream());
+        }
+        int file_size = input.readInt();
+        if (file_size == 0) {
             return 0;
+        }
         FileOutputStream file_out = new FileOutputStream(file_name);
         int number_read;
-        byte[] buffer = new byte[10000];
-        while ((number_read = client_cmd_input.read(buffer)) != -1)
+        byte[] buffer = new byte[1000];
+        while ((number_read = input.read(buffer)) != -1)
             file_out.write(buffer, 0, number_read);
         file_out.close();
         return number_read;
@@ -143,7 +145,18 @@ public class MessengerWithFiles {
             Scanner sc = new Scanner(System.in);
             String file_name = sc.nextLine();
             try {
-                client.getFile(file_name);
+                sendFileName(file_name);
+                new Thread(() -> {
+                    try {
+                        System.out.println(client.receiveFile(file_name));
+                        File f_test = new File(file_name);
+                        long test_size = f_test.length();
+                        // TODO: figure out why this won't print....
+                        System.out.println("Actual size client-side: " + test_size);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }).start();
             } catch (IOException io) {
                 io.printStackTrace();
             }
@@ -154,15 +167,23 @@ public class MessengerWithFiles {
         }
     }
 
+    public void sendFileName(String file_name) throws IOException {
+        DataOutputStream output;
+        if (client_cmd_output == null) output = server_cmd_output;
+        else output = client_cmd_output;
+        output.writeUTF(file_name);
+    }
+
     public void sendPortToServer() {
         DataOutputStream output;
         if (client_cmd_output == null) output = server_cmd_output;
         else output = client_cmd_output;
         try {
+            // might need to be field to transfer file data; TTL
             ServerSocket file_transfer_server_socket = new ServerSocket(6003);
             output.writeByte('p');
             output.writeInt(6003);
-            Socket file_transfer_client_socket = file_transfer_server_socket.accept();
+            server_file_connection = file_transfer_server_socket.accept();
             output.flush();
         } catch (IOException io) {
             io.printStackTrace();
@@ -176,7 +197,6 @@ public class MessengerWithFiles {
         // message read and send logic
         try {
             System.out.println("Enter your message:");
-            // TODO: implement 'f' type messages to be sent
             Scanner sc = new Scanner(System.in);
             String msg = sc.nextLine();
             output.writeByte('t');
@@ -189,8 +209,7 @@ public class MessengerWithFiles {
         }
     }
 
-    // TODO: Fix for handling file requests as well
-    public void receiveMessage() throws IOException {
+    public void receiveCommands() throws IOException {
         DataInputStream input;
         if (client_cmd_input == null) input = server_cmd_input;
         else input = client_cmd_input;
@@ -205,13 +224,23 @@ public class MessengerWithFiles {
                 input.readFully(message_bytes);
                 String message_received = new String(message_bytes, StandardCharsets.UTF_8);
                 System.out.println(message_received);
-            } else {
-                System.out.println("Step into file logic");
+            } else if (header == 'p') {
                 // file transfer case
                 int file_port = input.readInt();
-                Socket file_connection = new Socket("localhost", file_port);
-
-                System.out.println("implement correct file logic in function");
+                client_file_connection = new Socket("localhost", file_port);
+                // call function to transmit file
+                String file_name = input.readUTF();
+                System.out.println("File name received from requestor..." + file_name);
+                File f_test = new File(file_name);
+                long test_size = f_test.length();
+                System.out.println("Supposed size: " + test_size);
+                new Thread(() -> {
+                    try {
+                        this.transmitFileToOutputStream(file_name);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }).start();
             }
         } catch (IOException io) {
             io.printStackTrace();
@@ -229,30 +258,30 @@ public class MessengerWithFiles {
                 new Thread(() -> {
                     while (true) {
                         try {
-                            client.receiveMessage();
+                            client.receiveCommands();
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
                     }
                 }).start();
                 // new thread for prompting user and executing actions
-                    new Thread(() -> {
-                        while (true) {
-                            try {
-                                String act = client.promptUser();
-                                client.executeAction(client, act);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
+                new Thread(() -> {
+                    while (true) {
+                        try {
+                            String act = client.promptUser();
+                            client.executeAction(client, act);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
                         }
-                    }).start();
+                    }
+                }).start();
             } else {
                 MessengerWithFiles server = new MessengerWithFiles(server_cmd_port, "y");
                 // listen for messages in another thread
                 new Thread(() -> {
                     while (true) {
                         try {
-                            server.receiveMessage();
+                            server.receiveCommands();
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
