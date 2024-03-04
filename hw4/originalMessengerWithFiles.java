@@ -1,16 +1,14 @@
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
-public class MessengerWithFiles {
+public class MessengerWithFiles1 {
     Socket client_cmd_socket;
     Socket server_client_cmd_socket;
     Socket client_file_connection;
     Socket server_file_connection;
-    Socket file_connection;
     ServerSocket server_cmd_socket;
     ServerSocket file_transfer_server_socket;
     static int server_cmd_port;
@@ -40,18 +38,13 @@ public class MessengerWithFiles {
         server_cmd_output = new DataOutputStream(server_client_cmd_socket.getOutputStream());
     }
 
-    // TODO: send file size before transmitting bytes; Modify to open connections on new port
-    // TODO: reset file transfer sockets to null; they can switch roles dynamically with each transfer, can't have both populated
-    // TODO: use buffer array to partition bytes into multiple packets if needed
     public void transmitFileToOutputStream(String file_name) throws IOException {
-        DataOutputStream output = new DataOutputStream(file_connection.getOutputStream());
-        /*
+        DataOutputStream output;
         if (client_file_connection == null) {
             output = new DataOutputStream(server_file_connection.getOutputStream());
         } else {
             output = new DataOutputStream(client_file_connection.getOutputStream());
         }
-         */
         File file = new File(file_name);
         int file_size;
         if (file.exists() && file.canRead()) {
@@ -73,7 +66,7 @@ public class MessengerWithFiles {
         byte[] buffer = new byte[file_size];
         while ((number_read = file_input.read(buffer)) != -1)
             output.write(buffer, 0, number_read);
-
+        closeFileConnections();
         file_input.close();
     }
 
@@ -83,44 +76,35 @@ public class MessengerWithFiles {
     }
 
     public int receiveFile(String file_name) throws IOException {
-        try {
-            DataInputStream input = new DataInputStream(file_connection.getInputStream());
-            int file_size = input.readInt();
-            if (file_size == 0) {
-                return 0;
-            }
-            FileOutputStream file_out = new FileOutputStream(file_name);
-            int number_read;
-            byte[] buffer = new byte[1000];
-            while ((number_read = input.read(buffer)) != -1)
-                file_out.write(buffer, 0, number_read);
-            file_out.close();
-            System.out.println("Starting closing connections...");
-            // find correct file broadcasting stream
-            DataOutputStream output;
-            if (client_cmd_output == null) output = server_cmd_output;
-            else output = client_cmd_output;
-            output.writeByte('z');
-
-            closeFileConnections();
-            return number_read;
-        } catch (SocketException se) {
-            System.out.println("Socket exception");
+        DataInputStream input;
+        if (client_file_connection == null) {
+            input = new DataInputStream(server_file_connection.getInputStream());
+        } else {
+            input = new DataInputStream(client_file_connection.getInputStream());
         }
-        return 0;
+        int file_size = input.readInt();
+        if (file_size == 0) {
+            return 0;
+        }
+        FileOutputStream file_out = new FileOutputStream(file_name);
+        int number_read;
+        byte[] buffer = new byte[1000];
+        while ((number_read = input.read(buffer)) != -1)
+            file_out.write(buffer, 0, number_read);
+        file_out.close();
+        System.out.println("closing connections...");
+        closeFileConnections();
+        return number_read;
     }
 
     public void closeClient() throws IOException {
         client_cmd_socket.close();
     }
 
-    public String promptUser() throws IOException {
+    public String promptUser() {
         System.out.println("Enter an option ('m', 'f', 'x'):\n\t (M)essage (send)\n\t (F)ile (request)\n\te(X)it");
-        BufferedReader reader = new BufferedReader(new InputStreamReader((System.in)));
-        String opt = reader.readLine();
-
-        //Scanner sc = new Scanner(System.in);
-        //String opt = sc.nextLine();
+        Scanner sc = new Scanner(System.in);
+        String opt = sc.nextLine();
         if (opt.equals("m") || opt.equals("f") || opt.equals("x")) return opt;
         else return "Error";
     }
@@ -171,7 +155,7 @@ public class MessengerWithFiles {
                         File f_test = new File(file_name);
                         long test_size = f_test.length();
                         System.out.println("Actual size client-side: " + test_size);
-                        client.promptUser();
+                        closeFileConnections();
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
@@ -194,15 +178,15 @@ public class MessengerWithFiles {
     }
 
     public void closeFileConnections() throws IOException {
-        if (file_connection != null) {
-            System.out.println("Closing file connection...");
-            file_connection.close();
+        if (client_file_connection == null) {
+            System.out.println("Closing server conns..");
+            server_file_connection.close();
+        } else {
+            System.out.println("Closing client file conns.. ");
+            client_file_connection.close();
         }
-        if (file_transfer_server_socket != null) {
-            System.out.println("Closing server socket...");
-            file_transfer_server_socket.close();
-        }
-        System.out.println("All connections closed.");
+        if (file_transfer_server_socket != null) file_transfer_server_socket.close();
+        System.out.println("Connections closed.");
     }
 
     public void sendPortToServer() {
@@ -210,11 +194,10 @@ public class MessengerWithFiles {
         if (client_cmd_output == null) output = server_cmd_output;
         else output = client_cmd_output;
         try {
-            System.out.println("Opening server socket on 6003");
             file_transfer_server_socket = new ServerSocket(6003);
             output.writeByte('p');
             output.writeInt(6003);
-            file_connection = file_transfer_server_socket.accept();
+            server_file_connection = file_transfer_server_socket.accept();
             output.flush();
         } catch (IOException io) {
             io.printStackTrace();
@@ -258,15 +241,15 @@ public class MessengerWithFiles {
             } else if (header == 'p') {
                 // file transfer case
                 int file_port = input.readInt();
-                System.out.println("Opening socket on " + file_port);
-                file_connection = new Socket("localhost", file_port);
+                System.out.println("File port to open on: " + file_port);
+                client_file_connection = new Socket("localhost", file_port);
+                System.out.println("Socket open on localhost port " + file_port);
                 // call function to transmit file
-                System.out.println("Socket open on " + file_port);
                 String file_name = input.readUTF();
-                System.out.println("File name received from requestor..." + file_name);
+                System.out.println("File name received from requestor... " + file_name);
                 File f_test = new File(file_name);
                 long test_size = f_test.length();
-                System.out.println("Supposed size: " + test_size);
+                System.out.println("original size: " + test_size);
                 new Thread(() -> {
                     try {
                         this.transmitFileToOutputStream(file_name);
@@ -274,18 +257,9 @@ public class MessengerWithFiles {
                         throw new RuntimeException(e);
                     }
                 }).start();
-            } else if (header == 'z') {
-                System.out.println("Picked up Z byte!");
-                Thread.sleep(100);
-            	closeFileConnections();
             }
-        } catch (EOFException eof) {
-            System.out.println("End of file! Terminating...");
-            System.exit(0);
         } catch (IOException io) {
             io.printStackTrace();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
         }
     }
 
